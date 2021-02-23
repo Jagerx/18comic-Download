@@ -19,7 +19,8 @@ ERROR_PAGE_LIST = [] #声明一个全局变量，用来储存因诸如网络等�
 WARNING_PAGE_LIST = [] #存储有问题但不需要处理的图片。有些图片经过人工验证发现在服务器上就是0字节，记录到这里但不处理
 # semaphore = threading.Semaphore(30)  #下载同时执行的线程数。已用ThreadPoolExecutor取代semaphore控制并行线程数
 ## semaphore是用阻塞acquire()的方式限制同时执行的线程数。简单方便但无法显示进度。留着这个说不定以后同时下载多本的时候限流
-MAX_WORKERS = 50 #通过concurrent模块的线程池中控制最大下载数的变量
+MAX_WORKERS = 20 #通过concurrent模块的线程池中控制最大下载数的变量
+#线程就不要弄太多啦，网站营运也是很难受的。
 
 def checkImgConvert(url): #判断图片是否做过反爬机制，比较狂野的使用id分析,没有对前端进行分析来判断
     pass
