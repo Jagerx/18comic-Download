@@ -181,6 +181,7 @@ def get_url_list2(url): #原get_url_list方法采用编号推算，对编号断�
     dir_name = re.sub('/', '' ,dir_name) # 去除反斜杠，以免产生不必要的子文件夹
     path = r'download/' + dir_name
     path = re.sub('[:*?"<>|]', '' ,path) # 去除特殊字符
+    path = path.rstrip() #去除右空格（以免能建立目录但因为目录名不一致而不能下载）
     # print(path)
     folder = os.path.exists(path)
     if not folder:
