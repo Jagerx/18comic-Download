@@ -19,8 +19,9 @@ ERROR_PAGE_LIST = [] #声明一个全局变量，用来储存因诸如网络等�
 WARNING_PAGE_LIST = [] #存储有问题但不需要处理的图片。有些图片经过人工验证发现在服务器上就是0字节，记录到这里但不处理
 # semaphore = threading.Semaphore(30)  #下载同时执行的线程数。已用ThreadPoolExecutor取代semaphore控制并行线程数
 ## semaphore是用阻塞acquire()的方式限制同时执行的线程数。简单方便但无法显示进度。留着这个说不定以后同时下载多本的时候限流
-MAX_WORKERS = 20 #通过concurrent模块的线程池中控制最大下载数的变量
+MAX_WORKERS = 5 #通过concurrent模块的线程池中控制最大下载数的变量
 #线程就不要弄太多啦，网站营运也是很难受的。
+ALT_CDN = "https://cdn-msp.msp-comic1.xyz/" #这个来源没有DDOS检测。如果下载图片因为DDOS防护而失败，就切换到这个CDN进行尝试
 
 def checkImgConvert(url): #判断图片是否做过反爬机制，比较狂野的使用id分析,没有对前端进行分析来判断
     pass
@@ -406,15 +407,22 @@ def main(mirror, id):
     (url_list,path) = get_url_list2(url)   #改用新方法获取图片地址
     url_path_list = [] # 里面加入path等，用于把多个变量传入download_image方法的信息
     for url_in_list in url_list:
-        url_path_list.append((url_in_list, path, convert_status))
+        url_path_list.append((url_in_list, path, convert_status)) #注意：每个图片地址元素是tuple，所以修改ERROR_PAGE_LIST的CDN时重构
     comic_num = len(url_path_list)
     start_time = time.time()  # 开始执行时间
     downloadByThread(comic_num, url_path_list)  #多线程下载
+    if len(ERROR_PAGE_LIST) == comic_num:  #检测是否全部图片下载失败。如果出现失败，可能是DDOS防护，也可能是目录名特殊字符出bug
+        #以下内容是替换ERROR_PAGE_LIST中下载地址的CDN来源，以尝试解决下载全部失败的情况
+        for i in ERROR_PAGE_LIST:  #注意：i是tuple不是list不能直接改
+            ERROR_PAGE_LIST.remove(i)
+            ERROR_PAGE_LIST.append((ALT_CDN + "/".join(i[0].split("/")[3:]), i[1], i[2]))
+        print("\033[1;37;41m" + "【错误】" + "\033[0m 全部下载失败，尝试更换图片CDN来源……\n")
     while ERROR_PAGE_LIST:
         print('当前有' + str(len(ERROR_PAGE_LIST)) + '张comic image由于不可抗网络因素下载失败，')
         for i in ERROR_PAGE_LIST:    #显示失败的图片编号用于debug
             print(i[0].split('/')[-1].split('?')[0], " ", end = "")
-        print('\n正在第' + str(re_download_count) + '次重新下载...')
+        print('\n10s后开始第' + str(re_download_count) + '次重新下载...')
+        time.sleep(10)
         re_download_count += 1
         comic_num = len(ERROR_PAGE_LIST)
         downloadByThread(comic_num, ERROR_PAGE_LIST)
