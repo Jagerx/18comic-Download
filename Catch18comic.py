@@ -8,8 +8,12 @@ import re
 # import threading #多线程支持库，对于这种io密集操作相对于多进程还是换成多线程比较好
 from concurrent import futures #异步执行模块。【警告】需求python版本 3.2以上！
 import time
+
 '''
 基于BeautifulSoup解析库的py爬虫爬取18comic
+
+待办事宜：
+当前mkIndex还是根据comic_num计数在生成的html中显示图片。应该及早更新为imgs数列
 '''
 public_headers = {
     'user-agent' : 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.141 Safari/537.36'
@@ -22,6 +26,7 @@ WARNING_PAGE_LIST = [] #存储有问题但不需要处理的图片。有些图�
 MAX_WORKERS = 5 #通过concurrent模块的线程池中控制最大下载数的变量
 #线程就不要弄太多啦，网站营运也是很难受的。
 ALT_CDN = "https://cdn-msp.msp-comic1.xyz/" #这个来源没有DDOS检测。如果下载图片因为DDOS防护而失败，就切换到这个CDN进行尝试
+SKIP_EXIST = "1" # 跳过已经下载的章节。在photo下载时根据是否存在index.html（上次成功全集下载）判断是否跳过该章节。因为该数字为输入，所以直接字符串
 
 def checkImgConvert(url): #判断图片是否做过反爬机制，比较狂野的使用id分析,没有对前端进行分析来判断
     pass
@@ -203,7 +208,8 @@ def get_url_list2(url): #原get_url_list方法采用编号推算，对编号断�
     comic_page_url_head = '/'.join(anyJpg['data-original'].split('/')[:-1])  #图片网址前缀
     comic_page_id_tail = anyJpg['data-original'].split('?')[-1]                   #图片网址后缀
     for page in rawList :
-        comic_page_urls.append( comic_page_url_head + "/" +page[1:-1] + "?" + comic_page_id_tail )  #前缀加上去引号的图片名
+        if page.find("jpg") >= 0 :   #有些图片是空白图片，例如名字不是"xxxxx.jpg"而是"extract",这会产生无效的下载地址
+            comic_page_urls.append( comic_page_url_head + "/" +page[1:-1] + "?" + comic_page_id_tail )  #前缀加上去引号的图片名
     return (comic_page_urls, path)
 
 def get_url_list(url): #得到图片的下载链接
@@ -402,39 +408,46 @@ def main(mirror, id):
         convert_status = True
     url = 'https://' + mirror +'/photo/' + str(id)
     re_download_count = 1 #由于网络等种种原因而重新下载次数
-    print('解析成功,开始下载',url)
-    #path = makeDir(url)
+    print('开始下载',url)
+    #path = makeDir(url) #已合并
     (url_list,path) = get_url_list2(url)   #改用新方法获取图片地址
     url_path_list = [] # 里面加入path等，用于把多个变量传入download_image方法的信息
     for url_in_list in url_list:
         url_path_list.append((url_in_list, path, convert_status)) #注意：每个图片地址元素是tuple，所以修改ERROR_PAGE_LIST的CDN时重构
     comic_num = len(url_path_list)
-    start_time = time.time()  # 开始执行时间
-    downloadByThread(comic_num, url_path_list)  #多线程下载
-    if len(ERROR_PAGE_LIST) == comic_num:  #检测是否全部图片下载失败。如果出现失败，可能是DDOS防护，也可能是目录名特殊字符出bug
-        #以下内容是替换ERROR_PAGE_LIST中下载地址的CDN来源，以尝试解决下载全部失败的情况
-        for i in ERROR_PAGE_LIST:  #注意：i是tuple不是list不能直接改
-            ERROR_PAGE_LIST.remove(i)
-            ERROR_PAGE_LIST.append((ALT_CDN + "/".join(i[0].split("/")[3:]), i[1], i[2]))
-        print("\033[1;37;41m" + "【错误】" + "\033[0m 全部下载失败，尝试更换图片CDN来源……\n")
-    while ERROR_PAGE_LIST:
-        print('当前有' + str(len(ERROR_PAGE_LIST)) + '张comic image由于不可抗网络因素下载失败，')
-        for i in ERROR_PAGE_LIST:    #显示失败的图片编号用于debug
-            print(i[0].split('/')[-1].split('?')[0], " ", end = "")
-        print('\n10s后开始第' + str(re_download_count) + '次重新下载...')
-        time.sleep(10)
-        re_download_count += 1
-        comic_num = len(ERROR_PAGE_LIST)
-        downloadByThread(comic_num, ERROR_PAGE_LIST)
-        if re_download_count > 10 :  #连续10次出错，可能是页码编号断层，尝试处理
-            print ("连续10次出错，可能存在页码编号断层。当前剩余" , len(ERROR_PAGE_LIST) ,  "个图片，尝试处理中…")
-            #处理方式没有写，计划直接下载 "总编号+1.jpg"，然后反复尝试。但是现在用了新方法获取url_path_list
-    download_time = float(time.time() - start_time)
-    print("所有comic image下载成功，共" + str(len(url_path_list)) + "张（含0字节图片"+ str(len(WARNING_PAGE_LIST))+"张）,下载用时:%.1fS。enjoy!\n\n" % download_time)
+    # 判断是否跳过已下载章节
+    if SKIP_EXIST == "1" and os.path.exists(path + "/index.html"):
+        print('该章节已经下载，跳过……')
+    else :
+        #开始下载操作
+        start_time = time.time()  # 开始执行时间
+        downloadByThread(comic_num, url_path_list)  #多线程下载
+        if len(ERROR_PAGE_LIST) == comic_num:  #检测是否全部图片下载失败。如果出现失败，可能是DDOS防护，也可能是目录名特殊字符出bug
+            #以下内容是替换ERROR_PAGE_LIST中下载地址的CDN来源，以尝试解决下载全部失败的情况
+            for i in ERROR_PAGE_LIST:  #注意：i是tuple不是list不能直接改
+                ERROR_PAGE_LIST.remove(i)
+                ERROR_PAGE_LIST.append((ALT_CDN + "/".join(i[0].split("/")[3:]), i[1], i[2]))
+            print("\033[1;37;41m" + "【错误】" + "\033[0m 全部下载失败，尝试更换图片CDN来源……\n")
+        while ERROR_PAGE_LIST:
+            print('当前有' + str(len(ERROR_PAGE_LIST)) + '张comic image由于不可抗网络因素下载失败，')
+            for i in ERROR_PAGE_LIST:    #显示失败的图片编号用于debug
+                print(i[0].split('/')[-1].split('?')[0], " ", end = "")
+            print('\n10s后开始第' + str(re_download_count) + '次重新下载...')
+            time.sleep(10)
+            re_download_count += 1
+            comic_num = len(ERROR_PAGE_LIST)
+            downloadByThread(comic_num, ERROR_PAGE_LIST)
+            if re_download_count > 10 :  #连续10次出错，可能是页码编号断层，尝试处理
+                print ("连续10次出错，可能存在页码编号断层。当前剩余" , len(ERROR_PAGE_LIST) ,  "个图片，尝试处理中…")
+                #处理方式没有写，计划直接下载 "总编号+1.jpg"，然后反复尝试。但是现在用了新方法获取url_path_list
+        download_time = float(time.time() - start_time)
+        print("所有comic image下载成功，共" + str(len(url_path_list)) + "张（含0字节图片"+ str(len(WARNING_PAGE_LIST))+"张）,下载用时:%.1fS。enjoy!\n\n" % download_time)
+        #以上是不跳过已存在章节
     return (path, len(url_path_list) ) #把地址传出去，用于生成index.html的上下页链接。传递变量避免重复读取网页
 
 
 if __name__ == '__main__':
+    #main不用声明全局变量：SKIP_EXIST
     print('18comic.vip Downloader by emptysuns.\n请不要用于任何非法用途，仅作学习交流\n版本:Version 2.2\n下载链接格式请参照：\nhttps://github.com/emptysuns/18comic-Download\thttps://blog.acglove.cloud/?p=35\n')
     download_count = 1
     while(1):
@@ -443,36 +456,33 @@ if __name__ == '__main__':
         mirror = url.split('/')[2] #记录输入的镜像站点，传入main(mirror,id)从该镜像下载。也可指定其他镜像
         flag = checkPluralPage(url)
         if flag: #有就进行解析，无就直接下载
-            check_all_download = input('Tips:检测到您输入的链接是包括多个章节的，请判断是否将所有章节都下载：\n输入数字1:下载全部章节\t输入数字0:只下载当前章节\n')
+            check_all_download = input('Tips:检测到您输入的链接是包括多个章节的，请判断是否自动跳过已经下载的章节：\n输入数字0:重新下载全部章节\t输入数字1:自动跳过已经下载的章节\n')
             if check_all_download == '1' or check_all_download == '0':
-                if check_all_download == '1':
-                    chapter_list = getChapterList(url)
-                    # print(chapter_list) # 调试输出是否得到所有下载id
-                    print('当前共有'+str(len(chapter_list))+'话需下载\n')
-                    chapter_count = 1
-                    path_list = []  #存储已经下载章节的存储位置和图片数
-                    for id in chapter_list:
-                        print('正在下载第'+str(chapter_count)+ '话/共'+ str(len(chapter_list))+ '话，请稍后...')
-                        (path,comic_num) = main(mirror, id) #记录该章节的保存位置。
-                        path_list.append((path,comic_num))  #保存到列表便于下载完成后生成目录
-                        chapter_count += 1
-                    print('共'+str(len(chapter_list))+'话下载完毕！')
-                    download_count += 1
-                    # print('正在生成index.html文件，以便于\n')
-                    #print(path_list)  #测试是否正确记录了图片数
-                    for i in range(len(path_list)) :  #i是当前章节的序号，便于查找上一章和下一章
-                        (path , comic_num) = path_list[i]
-                        preLinks = []  #章节的之前目录清零
-                        nextLinks = []  #章节的后续目录清零
-                        for j in range( i ): #生成之前章节的目录(从起始章到 i 的前一章)
-                            preLinks.append( path_list[j][0].split("/")[1] )
-                        for k in range( i+1, len(path_list) ): #生成之后章节的目录（从 i+1 章到最后一章）
-                            nextLinks.append( path_list[k][0].split("/")[1] )
-                        mkIndex( path , comic_num , preLinks, nextLinks) #path包含“/download”前缀，preLinks和nextLinks只有目录
-                    print("生成了", len(path_list) , "个html文件，便于浏览\n" )
-                else:
-                    (path,comic_num) = main(mirror, id)
-                    download_count += 1
+                SKIP_EXIST = check_all_download
+                chapter_list = getChapterList(url)
+                # print(chapter_list) # 调试输出是否得到所有下载id
+                print('当前共有'+str(len(chapter_list))+'话需下载\n')
+                chapter_count = 1
+                path_list = []  #存储已经下载章节的存储位置和图片数
+                for id in chapter_list:
+                    print('正在下载第'+str(chapter_count)+ '话/共'+ str(len(chapter_list))+ '话，请稍后...')
+                    (path,comic_num) = main(mirror, id) #记录该章节的保存位置。
+                    path_list.append((path,comic_num))  #保存到列表便于下载完成后生成目录
+                    chapter_count += 1
+                print('共'+str(len(chapter_list))+'话下载完毕！')
+                download_count += 1
+                # print('正在生成index.html文件，以便于\n')
+                #print(path_list)  #测试是否正确记录了图片数
+                for i in range(len(path_list)) :  #i是当前章节的序号，便于查找上一章和下一章
+                    (path , comic_num) = path_list[i]
+                    preLinks = []  #章节的之前目录清零
+                    nextLinks = []  #章节的后续目录清零
+                    for j in range( i ): #生成之前章节的目录(从起始章到 i 的前一章)
+                        preLinks.append( path_list[j][0].split("/")[1] )
+                    for k in range( i+1, len(path_list) ): #生成之后章节的目录（从 i+1 章到最后一章）
+                        nextLinks.append( path_list[k][0].split("/")[1] )
+                    mkIndex( path , comic_num , preLinks, nextLinks) #path包含“/download”前缀，preLinks和nextLinks只有目录
+                print("生成了", len(path_list) , "个html文件，便于浏览\n" )
             else:
                 print("请输入的合法字符")
                 download_count += 1
