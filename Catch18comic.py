@@ -186,7 +186,7 @@ def get_url_list2(url): #原get_url_list方法采用编号推算，对编号断�
     dir_name = title.split('|')[0]
     dir_name = re.sub('/', '' ,dir_name) # 去除反斜杠，以免产生不必要的子文件夹
     path = r'download/' + dir_name
-    path = re.sub('[:*?"<>|]', '' ,path) # 去除特殊字符
+    path = re.sub('[:*?"<>|.]', '' ,path) # 去除特殊字符
     path = path.rstrip() #去除右空格（以免能建立目录但因为目录名不一致而不能下载）
     # print(path)
     folder = os.path.exists(path)
@@ -286,7 +286,7 @@ def makeDir(url): # 根据传入的url创建以名称为根据的文件夹，返
             dir_name = title.split('|')[0]
             dir_name = re.sub('/', '' ,dir_name) # 去除反斜杠，以免产生不必要的子文件夹
             path = r'download/' + dir_name
-            path = re.sub('[:*?"<>|]', '' ,path) # 去除特殊字符
+            path = re.sub('[:*?"<>|.]', '' ,path) # 去除特殊字符
             # print(path)
             folder = os.path.exists(path)
             if not folder:
@@ -384,7 +384,7 @@ def downloadByThread(comic_num, url_path_list):
     workers = min(MAX_WORKERS, comic_num) #确定线程池数量，避免超出页数
     print(' ===> 正在开始多线程下载（线程数量:' + str(workers) + ')请稍后......')
     with futures.ThreadPoolExecutor(workers) as executor: #启动线程池
-        results = list(tqdm(executor.map(download_image, url_path_list), total = comic_num, ncols=75, leave=True)) #加入线程池并记录结果
+        results = list(tqdm(executor.map(download_image, url_path_list), total = comic_num, ncols=75, leave=True, ascii=True)) #加入线程池并记录结果
         #上面tqdm记录进度条的参数是：executor中成果的结果数、最大结果数、指定列宽(防止cmd中超过)、防止多行(cmd的锅))
     # return results #返回已下载的地址
     
@@ -429,11 +429,11 @@ def main(mirror, id):
                 ERROR_PAGE_LIST.append((ALT_CDN + "/".join(i[0].split("/")[3:]), i[1], i[2]))
             print("\033[1;37;41m" + "【错误】" + "\033[0m 全部下载失败，尝试更换图片CDN来源……\n")
         while ERROR_PAGE_LIST:
-            print('当前有' + str(len(ERROR_PAGE_LIST)) + '张comic image由于不可抗网络因素下载失败，')
+            print('当前有' + str(len(ERROR_PAGE_LIST)) + '页图片由于不可抗网络因素下载失败，')
             for i in ERROR_PAGE_LIST:    #显示失败的图片编号用于debug
                 print(i[0].split('/')[-1].split('?')[0], " ", end = "")
-            print('\n10s后开始第' + str(re_download_count) + '次重新下载...')
-            time.sleep(10)
+            print('\n5s后开始第' + str(re_download_count) + '次重新下载...')
+            time.sleep(5)
             re_download_count += 1
             comic_num = len(ERROR_PAGE_LIST)
             downloadByThread(comic_num, ERROR_PAGE_LIST)
@@ -451,7 +451,8 @@ if __name__ == '__main__':
     print('18comic.vip Downloader by emptysuns.\n请不要用于任何非法用途，仅作学习交流\n版本:Version 2.2\n下载链接格式请参照：\nhttps://github.com/emptysuns/18comic-Download\thttps://blog.acglove.cloud/?p=35\n')
     download_count = 1
     while(1):
-        url = input('第'+str(download_count)+'次下载,请输入您想要下载comic的下载链接:\n')
+        print('【', time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()), '】', sep="")
+        url = input('请输入您想要下载comic的下载链接:\n')
         id = url.split('/')[4]
         mirror = url.split('/')[2] #记录输入的镜像站点，传入main(mirror,id)从该镜像下载。也可指定其他镜像
         flag = checkPluralPage(url)
@@ -485,9 +486,7 @@ if __name__ == '__main__':
                 print("生成了", len(path_list) , "个html文件，便于浏览\n" )
             else:
                 print("请输入的合法字符")
-                download_count += 1
                 continue
         else:
             (path,comic_num) = main(mirror, id)
             #单个合集的形式，就不生成index.html了。一般需要网页的韩漫都是连载的、分很多集
-            download_count += 1
